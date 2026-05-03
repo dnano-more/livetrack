@@ -1,0 +1,89 @@
+version: '3.9'
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LiveTrack – Docker Compose
+#
+# Services:
+#  zookeeper    – Kafka coordination
+#  kafka        – Message broker (location events)
+#  kafka-ui     – Optional web UI for Kafka topics (http://localhost:8080)
+#  server       – Node.js backend (Express + Socket.IO + Kafka producer/consumers)
+#  client       – React frontend (Vite)
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.1
+    restart: unless-stopped
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME:   2000
+    volumes:
+      - zookeeper-data:/var/lib/zookeeper/data
+      - zookeeper-log:/var/lib/zookeeper/log
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.1
+    restart: unless-stopped
+    depends_on: [zookeeper]
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID:                        1
+      KAFKA_ZOOKEEPER_CONNECT:                zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP:   PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS:             PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_INTER_BROKER_LISTENER_NAME:       PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE:        "true"
+      KAFKA_LOG_RETENTION_HOURS:              24
+      KAFKA_LOG_SEGMENT_BYTES:                1073741824
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    restart: unless-stopped
+    depends_on: [kafka]
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME:            local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on: [kafka]
+    ports:
+      - "3001:3001"
+    environment:
+      NODE_ENV:              production
+      PORT:                  3001
+      KAFKA_BROKERS:         kafka:29092
+      ALLOWED_ORIGINS:       http://localhost:5173,http://localhost:3000
+      DEMO_MODE:             "true"
+      JWT_SECRET:            change-this-in-production-min-32-chars
+      SESSION_SECRET:        change-session-secret-in-production
+      DB_PATH:               /data/livetrack.db
+    volumes:
+      - server-data:/data
+
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "5173:80"
+    environment:
+      VITE_SERVER_URL: http://localhost:3001
+    depends_on: [server]
+
+volumes:
+  zookeeper-data:
+  zookeeper-log:
+  kafka-data:
+  server-data:
